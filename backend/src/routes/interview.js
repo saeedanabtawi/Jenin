@@ -10,7 +10,7 @@ const transcriptStore = require('../services/store/mongoTranscriptStore');
 // GET /api/v1/interview
 router.get('/', (req, res) => {
   res.json({
-    service: 'jenin-backend',
+    service: 'ai-interview-test-tool-backend',
     route: '/api/v1/interview',
     endpoints: [
       'GET /api/v1/interview',

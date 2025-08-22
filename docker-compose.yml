@@ -1,0 +1,24 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: ai-interview-test-tool-mongo
+    restart: unless-stopped
+    environment:
+      # Change these if you want different creds
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+      # Optional: pre-create an app database
+      MONGO_INITDB_DATABASE: ai_interview_test_tool
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet mongodb://root:example@localhost:27017/admin --eval 'db.runCommand({ ping: 1 })' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  mongo_data:

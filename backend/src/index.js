@@ -42,7 +42,7 @@ app.use('/api/v1/sessions', sessionsRouter);
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
-    service: 'jenin-backend',
+    service: 'ai-interview-test-tool-backend',
     timestamp: new Date().toISOString(),
   });
 });
@@ -82,7 +82,7 @@ app.get('/health/providers', async (req, res) => {
 
 // Root route
 app.get('/', (req, res) => {
-  res.status(200).json({ message: 'Jenin AI mock Interviewer backend (Express) is running.' });
+  res.status(200).json({ message: 'AI Interview Test Tool backend (Express) is running.' });
 });
 
 // Socket.IO realtime

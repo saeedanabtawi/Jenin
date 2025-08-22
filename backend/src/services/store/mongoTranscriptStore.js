@@ -3,7 +3,7 @@
 const { MongoClient } = require('mongodb');
 
 const MONGODB_URI = process.env.MONGODB_URI || '';
-const MONGODB_DB = process.env.MONGODB_DB || 'jenin';
+const MONGODB_DB = process.env.MONGODB_DB || 'ai_interview_test_tool';
 const MONGODB_COLLECTION = process.env.MONGODB_COLLECTION || 'transcripts';
 
 let _client = null;
