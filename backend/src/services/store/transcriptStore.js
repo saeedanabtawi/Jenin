@@ -19,6 +19,7 @@ class TranscriptStore {
     const now = new Date().toISOString();
     const rec = { id, startedAt: now, endedAt: null, events: [] };
     this.sessions.set(id, rec);
+    this._autoPrune();
     this._persist(id);
     return rec;
   }
@@ -46,6 +47,45 @@ class TranscriptStore {
 
   listSessions() {
     return Array.from(this.sessions.values()).map(({ id, startedAt, endedAt, events }) => ({ id, startedAt, endedAt, eventCount: events.length }));
+  }
+
+  deleteSession(id) {
+    try {
+      this.sessions.delete(id);
+      const file = path.join(transcriptsDir, `${id}.json`);
+      if (fs.existsSync(file)) fs.unlinkSync(file);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  prune(maxFiles) {
+    const limit = Number(maxFiles || process.env.TRANSCRIPTS_MAX_FILES || 500);
+    try {
+      const files = fs.readdirSync(transcriptsDir)
+        .filter((f) => f.endsWith('.json'))
+        .map((f) => {
+          const full = path.join(transcriptsDir, f);
+          const st = fs.statSync(full);
+          return { file: full, mtime: st.mtimeMs };
+        })
+        .sort((a, b) => a.mtime - b.mtime);
+
+      if (files.length <= limit) return 0;
+      const toDelete = files.length - limit;
+      for (let i = 0; i < toDelete; i++) {
+        try { fs.unlinkSync(files[i].file); } catch {}
+      }
+      return toDelete;
+    } catch {
+      return 0;
+    }
+  }
+
+  _autoPrune() {
+    const limit = Number(process.env.TRANSCRIPTS_MAX_FILES || 500);
+    this.prune(limit);
   }
 
   _persist(id) {
