@@ -5,6 +5,7 @@ const router = express.Router();
 const { createSTT } = require('../services/stt');
 const { createLLM } = require('../services/llm');
 const { createTTS } = require('../services/tts');
+const transcriptStore = require('../services/store/transcriptStore');
 
 // GET /api/v1/interview
 router.get('/', (req, res) => {
@@ -33,6 +34,8 @@ router.post('/question', async (req, res) => {
     const tts = createTTS();
 
     const { question, audioBase64, wantTTS } = req.body || {};
+    const sessionId = req.header('x-session-id') || req.query.sessionId || null;
+    if (sessionId) transcriptStore.startSession(sessionId);
     let userText = question || '';
 
     // If audio is provided, transcribe first
@@ -40,6 +43,7 @@ router.post('/question', async (req, res) => {
       const audioBuffer = Buffer.from(String(audioBase64), 'base64');
       const sttResult = await stt.transcribeAudio(audioBuffer, { language: process.env.STT_LANGUAGE || 'en' });
       userText = sttResult?.text || '';
+      if (sessionId) transcriptStore.addEvent(sessionId, { type: 'stt_single', text: userText, provider: stt.name });
     }
 
     // Fallback if still empty
@@ -50,10 +54,17 @@ router.post('/question', async (req, res) => {
     // Generate an answer via LLM
     const prompt = `Interview question: ${userText}`;
     const llmResult = await llm.generateText(prompt, { model: process.env.LLM_MODEL });
+    if (sessionId) {
+      transcriptStore.addEvent(sessionId, { type: 'question', text: userText, wantTTS: !!wantTTS });
+      transcriptStore.addEvent(sessionId, { type: 'llm_reply', text: llmResult.text, provider: llm.name });
+    }
 
     let ttsResult = null;
     if (wantTTS) {
       ttsResult = await tts.synthesizeSpeech(llmResult.text, { voice: process.env.TTS_VOICE });
+      if (sessionId && ttsResult?.audioBase64) {
+        transcriptStore.addEvent(sessionId, { type: 'tts', provider: tts.name, bytes: Buffer.byteLength(ttsResult.audioBase64, 'base64') });
+      }
     }
 
     return res.status(200).json({
@@ -68,6 +79,8 @@ router.post('/question', async (req, res) => {
     });
   } catch (err) {
     console.error('Interview error:', err);
+    const sessionId = req.header('x-session-id') || req.query.sessionId || null;
+    if (sessionId) transcriptStore.addEvent(sessionId, { type: 'error', stage: 'rest_interview', error: String(err && err.message || err) });
     return res.status(500).json({ error: 'Internal error', detail: String(err && err.message || err) });
   }
 });
