@@ -56,13 +56,13 @@ Branding that emphasizes Palestinian pride and resilience.
 
 ## Tech Stack
 
-Core components (provider-agnostic, choose your stack):
+Core components (Express backend; provider-agnostic STT/LLM/TTS):
 
 - STT: Whisper API / Vosk / Deepgram / Google Cloud STT (selectable)
 - LLM: OpenAI / Anthropic / local models via Ollama (selectable)
 - TTS: ElevenLabs / Coqui TTS / Azure TTS (selectable)
-- Backend API (planned): REST over HTTP (FastAPI or Express)
-- Realtime (planned): WebSocket streaming for live transcription/latency reduction
+- Backend API: Express (Node.js) REST
+- Realtime: WebSocket/Socket.IO for live transcription and low latency
 - Storage (optional): Local JSON/SQLite for transcripts, rubrics, and session logs
 - Client (optional): Web client (Next.js/Vite) and/or CLI
 - Infra (optional): Docker for reproducible dev and deployment

@@ -3,6 +3,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const interviewRouter = require('./routes/interview');
 
 dotenv.config();
 
@@ -10,6 +11,9 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// API routes
+app.use('/api/v1/interview', interviewRouter);
 
 // Health route
 app.get('/health', (req, res) => {
