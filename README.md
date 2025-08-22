@@ -50,37 +50,58 @@ Branding that emphasizes Palestinian pride and resilience.
 
 ## Overview
 
-- What does this project do?
-- Why does it exist?
-- Key design decisions or architecture notes.
+- Jenin AI mock Interviewer is a voice-first mock interview coach. It conducts realistic interviews, transcribes user speech via Speech-to-Text (STT), reasons over responses with a Large Language Model (LLM), and replies with natural Text-to-Speech (TTS).
+- Persona: The Resilient Guide — confident, motivational, structured, and empowering. Voice is calm and authoritative yet approachable. Favorite line: “You’ve got this. Let’s tackle this question step by step.”
+- Architecture principles: modular, provider-agnostic adapters for STT/LLM/TTS; privacy-first by design; optional local/offline support depending on chosen providers.
 
 ## Tech Stack
 
-Fill in what applies. If unsure, delete or update later.
+Core components (provider-agnostic, choose your stack):
 
-- Language: e.g., TypeScript, JavaScript, Python, Go, Rust
-- Framework: e.g., Next.js, React, FastAPI, Express, Flask
-- Database: e.g., PostgreSQL, MySQL, MongoDB, SQLite
-- Infra: e.g., Docker, Kubernetes, Terraform
+- STT: Whisper API / Vosk / Deepgram / Google Cloud STT (selectable)
+- LLM: OpenAI / Anthropic / local models via Ollama (selectable)
+- TTS: ElevenLabs / Coqui TTS / Azure TTS (selectable)
+- Backend API (planned): REST over HTTP (FastAPI or Express)
+- Realtime (planned): WebSocket streaming for live transcription/latency reduction
+- Storage (optional): Local JSON/SQLite for transcripts, rubrics, and session logs
+- Client (optional): Web client (Next.js/Vite) and/or CLI
+- Infra (optional): Docker for reproducible dev and deployment
 
 ## Features
 
-- Feature 1
-- Feature 2
-- Feature 3
+- Realistic, role-based mock interviews (configurable role, domain, and difficulty)
+- Live transcription (interim + final) with timestamps
+- LLM-driven follow-ups, scoring with rubrics, and actionable feedback
+- Natural voice responses with adjustable voice, speed, and emotion
+- Session artifacts: full transcript, score breakdown, improvement plan, and resources
+- Extensible provider adapters for STT/LLM/TTS; swap without changing business logic
+- Privacy options: local-only mode when using local models/tools
 
 ## Project Structure
 
-Update this once files are added. Example layout:
+Planned layout (adjust as code is added):
 
 ```
 Jenin/
-├─ src/                # Source code
-├─ tests/              # Test suite
-├─ scripts/            # Dev/CI scripts
-├─ .github/workflows/  # GitHub Actions
-├─ README.md           # This file
-└─ LICENSE             # Project license
+├─ backend/                   # Express API server
+│  ├─ src/
+│  │  ├─ routes/              # HTTP routes
+│  │  ├─ services/            # Provider adapters
+│  │  │  ├─ stt/
+│  │  │  ├─ llm/
+│  │  │  └─ tts/
+│  │  ├─ middlewares/
+│  │  ├─ utils/
+│  │  └─ index.ts|js          # App entry
+│  ├─ package.json
+│  └─ tsconfig.json           # if using TypeScript
+├─ client/                    # Optional web client (Next.js/Vite)
+├─ data/                      # Prompts, rubrics, sample questions, saved sessions
+├─ tests/                     # Test suite
+├─ scripts/                   # Dev/CI scripts
+├─ .env.example               # Example environment configuration
+├─ README.md
+└─ LICENSE
 ```
 
 ## Getting Started
@@ -88,77 +109,100 @@ Jenin/
 ### Prerequisites
 
 - Git
-- One of the following (update to match your stack):
-  - Node.js (LTS) and npm or pnpm or yarn
-  - Python 3.10+ and pip
-  - Docker (optional)
+- Node.js (LTS) and npm/pnpm/yarn
+- Optional: Docker for containerized dev/deploy
 
 ### Installation
 
-Choose the path that matches your stack and remove the others.
+1) Clone the repository
+```bash
+git clone <this-repo-url>
+cd Jenin
+```
 
-- Node.js
-  ```bash
-  npm install
-  # or
-  yarn install
-  # or
-  pnpm install
-  ```
+2) Backend (Express) setup
+```bash
+# if using backend/ subdir (per structure)
+cd backend || true
+npm install
+# or: pnpm install / yarn install
+```
 
-- Python
-  ```bash
-  python -m venv .venv
-  source .venv/bin/activate
-  pip install -r requirements.txt
-  ```
+3) Optional Web Client
+```bash
+cd client
+npm install
+```
 
 ### Running Locally
 
-- Node.js
-  ```bash
-  npm run dev
-  ```
+- Backend API (Express)
+```bash
+npm run dev --prefix backend
+# or: node backend/src/index.js
+```
 
-- Python (example)
-  ```bash
-  uvicorn app:app --reload --port 8000
-  ```
+- Optional Web Client
+```bash
+npm run dev --prefix client
+```
 
 ## Configuration
 
-- Copy `.env.example` to `.env` (if applicable) and fill in values.
-- Environment variables (add/remove as needed):
-  - `PORT=`
-  - `DATABASE_URL=`
-  - `API_KEY=`
+- Copy `.env.example` to `.env` and fill in the values relevant to your chosen providers.
+- Suggested variables:
+  - General: `PORT`, `ENV`, `LOG_LEVEL`
+  - STT: `STT_PROVIDER`, `STT_API_KEY`, `STT_LANGUAGE`
+  - LLM: `LLM_PROVIDER`, `OPENAI_API_KEY` (or provider-specific), `LLM_MODEL`
+  - TTS: `TTS_PROVIDER`, `TTS_API_KEY`, `TTS_VOICE`
+  - Storage (optional): `DATABASE_URL` or path to local storage
 
 ## Scripts
 
-Add common scripts here once available. Examples:
+Planned common scripts (Express backend):
 
-- `dev`: Start the development server
-- `test`: Run test suite
-- `build`: Create production build
-- `lint`: Run linter/formatters
+- `dev`: Start Express in dev mode (e.g., `nodemon src/index.js`) in `backend/package.json`
+- `test`: Run unit tests (e.g., `jest` or `vitest`) for backend
+- `lint`: Run `eslint .` and `prettier --check .`
+- `build` (optional if TS): `tsc -p .`
+- `client:dev`: Start the web client (`npm run dev --prefix client`)
 
 ## Testing
 
-Describe how to run tests. Examples:
+Backend (Node.js):
+```bash
+npm test --prefix backend
+```
 
-- Node.js: `npm test`
-- Python: `pytest -q`
+Client (optional):
+```bash
+npm test --prefix client
+```
 
 ## Build
 
-How to produce a production build (e.g., `npm run build`, `python -m build`).
+Examples:
+
+- Docker (Express backend):
+  ```bash
+  docker build -t jenin-express-backend:latest -f docker/Dockerfile.backend .
+  ```
+- Backend TypeScript build (optional):
+  ```bash
+  npm run build --prefix backend
+  ```
+- Client build:
+  ```bash
+  npm run build --prefix client
+  ```
 
 ## Deployment
 
-Document how to deploy (CI/CD, hosting provider, manual steps). Examples:
+Options (pick what fits your stack):
 
-- Docker: `docker build -t jenin:latest . && docker run -p 8080:8080 jenin:latest`
-- Netlify/Vercel/Render/Fly.io configuration
+- Containerized: Push Docker image to a registry, deploy to Fly.io/Render/Heroku/Kubernetes
+- Node process manager on a VM/server: PM2 or systemd to keep the Express app running
+- Static client hosting on Netlify/Vercel + API on a separate host
 
 ## Contributing
 
@@ -175,5 +219,7 @@ Specify your license (e.g., MIT). Add a `LICENSE` file at the project root.
 
 ## Acknowledgments
 
-- Inspiration, references, related projects
-- Contributors
+- Branding inspired by Palestinian resilience and growth.
+- Thanks to the open-source STT/TTS/LLM communities and provider SDKs.
+- Contributors and reviewers who improve this project over time.
+
