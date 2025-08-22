@@ -3,6 +3,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+dotenv.config();
 const http = require('http');
 const { Server } = require('socket.io');
 const interviewRouter = require('./routes/interview');
@@ -13,9 +14,8 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const { requireApiKey, socketAuth } = require('./middleware/auth');
 const sessionsRouter = require('./routes/sessions');
-const transcriptStore = require('./services/store/transcriptStore');
+const transcriptStore = require('./services/store/mongoTranscriptStore');
 
-dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
@@ -86,9 +86,9 @@ app.get('/', (req, res) => {
 });
 
 // Socket.IO realtime
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   console.log('Socket connected', socket.id);
-  transcriptStore.startSession(socket.id);
+  await transcriptStore.startSession(socket.id);
 
   // Per-socket STT state for chunked audio
   const sttState = {
@@ -96,11 +96,11 @@ io.on('connection', (socket) => {
     timer: null,
   };
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', async () => {
     console.log('Socket disconnected', socket.id);
     if (sttState.timer) clearTimeout(sttState.timer);
     sttState.chunks = [];
-    transcriptStore.endSession(socket.id);
+    await transcriptStore.endSession(socket.id);
   });
 
   // Receive audio chunks -> STT
@@ -110,10 +110,10 @@ io.on('connection', (socket) => {
       const buffer = Buffer.from(String(audioBase64 || ''), 'base64');
       const result = await stt.transcribeAudio(buffer, { language: process.env.STT_LANGUAGE || 'en' });
       socket.emit('interview:stt', { text: result.text, provider: stt.name, interim: false });
-      transcriptStore.addEvent(socket.id, { type: 'stt_single', text: result.text, provider: stt.name });
+      await transcriptStore.addEvent(socket.id, { type: 'stt_single', text: result.text, provider: stt.name });
     } catch (err) {
       socket.emit('interview:error', { stage: 'stt', error: String((err && err.message) || err) });
-      transcriptStore.addEvent(socket.id, { type: 'error', stage: 'stt', error: String((err && err.message) || err) });
+      await transcriptStore.addEvent(socket.id, { type: 'error', stage: 'stt', error: String((err && err.message) || err) });
     }
   });
 
@@ -131,15 +131,15 @@ io.on('connection', (socket) => {
           const merged = Buffer.concat(sttState.chunks);
           const result = await stt.transcribeAudio(merged, { language: process.env.STT_LANGUAGE || 'en' });
           socket.emit('interview:stt', { text: result.text, provider: stt.name, interim: true });
-          transcriptStore.addEvent(socket.id, { type: 'stt_interim', text: result.text, provider: stt.name });
+          await transcriptStore.addEvent(socket.id, { type: 'stt_interim', text: result.text, provider: stt.name });
         } catch (err) {
           socket.emit('interview:error', { stage: 'stt_interim', error: String((err && err.message) || err) });
-          transcriptStore.addEvent(socket.id, { type: 'error', stage: 'stt_interim', error: String((err && err.message) || err) });
+          await transcriptStore.addEvent(socket.id, { type: 'error', stage: 'stt_interim', error: String((err && err.message) || err) });
         }
       }, 400);
     } catch (err) {
       socket.emit('interview:error', { stage: 'stt_chunk', error: String((err && err.message) || err) });
-      transcriptStore.addEvent(socket.id, { type: 'error', stage: 'stt_chunk', error: String((err && err.message) || err) });
+      await transcriptStore.addEvent(socket.id, { type: 'error', stage: 'stt_chunk', error: String((err && err.message) || err) });
     }
   });
 
@@ -152,17 +152,17 @@ io.on('connection', (socket) => {
       sttState.chunks = [];
       const result = await stt.transcribeAudio(merged, { language: process.env.STT_LANGUAGE || 'en' });
       socket.emit('interview:stt', { text: result.text, provider: stt.name, interim: false, final: true });
-      transcriptStore.addEvent(socket.id, { type: 'stt_final', text: result.text, provider: stt.name });
+      await transcriptStore.addEvent(socket.id, { type: 'stt_final', text: result.text, provider: stt.name });
     } catch (err) {
       socket.emit('interview:error', { stage: 'stt_final', error: String((err && err.message) || err) });
-      transcriptStore.addEvent(socket.id, { type: 'error', stage: 'stt_final', error: String((err && err.message) || err) });
+      await transcriptStore.addEvent(socket.id, { type: 'error', stage: 'stt_final', error: String((err && err.message) || err) });
     }
   });
 
   // Receive question text -> LLM (+ optional TTS)
   socket.on('interview:question', async ({ text, wantTTS }) => {
     try {
-      transcriptStore.addEvent(socket.id, { type: 'question', text: text || '', wantTTS: !!wantTTS });
+      await transcriptStore.addEvent(socket.id, { type: 'question', text: text || '', wantTTS: !!wantTTS });
       const llm = createLLM();
       const tts = createTTS();
       const out = await llm.generateText(`Interview question: ${text || ''}`, { model: process.env.LLM_MODEL });
@@ -171,13 +171,13 @@ io.on('connection', (socket) => {
         ttsResult = await tts.synthesizeSpeech(out.text, { voice: process.env.TTS_VOICE });
       }
       socket.emit('interview:reply', { text: out.text, provider: llm.name, tts: ttsResult });
-      transcriptStore.addEvent(socket.id, { type: 'llm_reply', text: out.text, provider: llm.name });
+      await transcriptStore.addEvent(socket.id, { type: 'llm_reply', text: out.text, provider: llm.name });
       if (ttsResult?.audioBase64) {
-        transcriptStore.addEvent(socket.id, { type: 'tts', provider: 'elevenlabs', bytes: Buffer.byteLength(ttsResult.audioBase64, 'base64') });
+        await transcriptStore.addEvent(socket.id, { type: 'tts', provider: 'elevenlabs', bytes: Buffer.byteLength(ttsResult.audioBase64, 'base64') });
       }
     } catch (err) {
       socket.emit('interview:error', { stage: 'llm_tts', error: String((err && err.message) || err) });
-      transcriptStore.addEvent(socket.id, { type: 'error', stage: 'llm_tts', error: String((err && err.message) || err) });
+      await transcriptStore.addEvent(socket.id, { type: 'error', stage: 'llm_tts', error: String((err && err.message) || err) });
     }
   });
 });
