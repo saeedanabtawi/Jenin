@@ -11,7 +11,7 @@ async function generateText(prompt, options = {}) {
   const client = new OpenAI({ apiKey });
 
   const model = options.model || process.env.LLM_MODEL || 'gpt-4o-mini';
-  const system = options.system || 'You are Jenin, The Resilient Guide: confident, motivational, structured, empowering, calm, authoritative yet approachable.';
+  const system = options.system || 'You are an AI interview coach: confident, motivational, structured, empowering, calm, authoritative yet approachable.';
 
   const resp = await client.chat.completions.create({
     model,

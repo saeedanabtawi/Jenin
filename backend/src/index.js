@@ -51,7 +51,7 @@ app.get('/health', (req, res) => {
 app.get('/health/providers', async (req, res) => {
   const sttProvider = process.env.STT_PROVIDER || 'whisper';
   const llmProvider = process.env.LLM_PROVIDER || 'openai';
-  const ttsProvider = process.env.TTS_PROVIDER || 'elevenlabs';
+  const ttsProvider = process.env.TTS_PROVIDER || 'openai';
 
   const status = {
     stt: {
@@ -72,9 +72,11 @@ app.get('/health/providers', async (req, res) => {
     },
     tts: {
       provider: ttsProvider,
-      configured: ttsProvider === 'elevenlabs'
-        ? Boolean((process.env.ELEVENLABS_API_KEY || process.env.TTS_API_KEY) && process.env.TTS_VOICE)
-        : false,
+      configured: ttsProvider === 'openai'
+        ? Boolean(process.env.OPENAI_API_KEY)
+        : ttsProvider === 'elevenlabs'
+          ? Boolean((process.env.ELEVENLABS_API_KEY || process.env.TTS_API_KEY) && process.env.TTS_VOICE)
+          : false,
     },
   };
   res.json({ status: 'ok', providers: status, timestamp: new Date().toISOString() });

@@ -1,13 +1,15 @@
 'use strict';
 
 const elevenlabs = require('./elevenlabs');
+const openai = require('./openai');
 
 const PROVIDERS = {
   elevenlabs,
+  openai,
 };
 
 function createTTS() {
-  const name = (process.env.TTS_PROVIDER || 'elevenlabs').toLowerCase();
+  const name = (process.env.TTS_PROVIDER || 'openai').toLowerCase();
   const provider = PROVIDERS[name];
   if (!provider) {
     const available = Object.keys(PROVIDERS).join(', ');

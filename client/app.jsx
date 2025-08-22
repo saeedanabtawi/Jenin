@@ -1,4 +1,4 @@
-// Jenin React Client (no-bundle)
+// AI Interview Test Tool React Client (no-bundle)
 // Loads via <script type="text/babel" src="./app.jsx"></script>
 
 const { useEffect, useMemo, useRef, useState } = React;
@@ -483,7 +483,7 @@ function App() {
 
   return (
     <div>
-      <h1>Jenin AI mock Interviewer (React)</h1>
+      <h1>AI Interview Test Tool (React)</h1>
       <TopBar
         serverUrl={serverUrl} setServerUrl={setServerUrl}
         apiKey={apiKey} setApiKey={setApiKey}

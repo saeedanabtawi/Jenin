@@ -1,4 +1,4 @@
-# Jenin client (minimal)
+# AI Interview Test Tool client (minimal)
 
 This is a minimal static client to interact with the Express backend.
 

@@ -1,6 +1,6 @@
-# Jenin AI mock Interviewer 
+# AI Interview Test Tool
 
-1. Jenin – The Resilient Guide
+1. The Resilient Guide
 
 Personality traits:
 
@@ -50,7 +50,7 @@ Branding that emphasizes Palestinian pride and resilience.
 
 ## Overview
 
-- Jenin AI mock Interviewer is a voice-first mock interview coach. It conducts realistic interviews, transcribes user speech via Speech-to-Text (STT), reasons over responses with a Large Language Model (LLM), and replies with natural Text-to-Speech (TTS).
+- AI Interview Test Tool is a voice-first mock interview coach. It conducts realistic interviews, transcribes user speech via Speech-to-Text (STT), reasons over responses with a Large Language Model (LLM), and replies with natural Text-to-Speech (TTS).
 - Persona: The Resilient Guide — confident, motivational, structured, and empowering. Voice is calm and authoritative yet approachable. Favorite line: “You’ve got this. Let’s tackle this question step by step.”
 - Architecture principles: modular, provider-agnostic adapters for STT/LLM/TTS; privacy-first by design; optional local/offline support depending on chosen providers.
 
@@ -82,7 +82,7 @@ Core components (Express backend; provider-agnostic STT/LLM/TTS):
 Planned layout (adjust as code is added):
 
 ```
-Jenin/
+ai-interview-test-tool/
 ├─ backend/                   # Express API server
 │  ├─ src/
 │  │  ├─ routes/              # HTTP routes
@@ -117,7 +117,7 @@ Jenin/
 1) Clone the repository
 ```bash
 git clone <this-repo-url>
-cd Jenin
+cd ai-interview-test-tool
 ```
 
 2) Backend (Express) setup
@@ -151,11 +151,11 @@ npm run dev --prefix client
 
 - Copy `.env.example` to `.env` and fill in the values relevant to your chosen providers.
 - Suggested variables:
-  - General: `PORT`, `ENV`, `LOG_LEVEL`
+  - General: `PORT`, `ENV`, `LOG_LEVEL`, `API_KEY` (set to enable API authentication)
   - STT: `STT_PROVIDER`, `STT_API_KEY`, `STT_LANGUAGE`
   - LLM: `LLM_PROVIDER`, `OPENAI_API_KEY` (or provider-specific), `LLM_MODEL`
   - TTS: `TTS_PROVIDER`, `TTS_API_KEY`, `TTS_VOICE`
-  - Storage (optional): `DATABASE_URL` or path to local storage
+  - MongoDB: `MONGODB_URI`, `MONGODB_DB` (default `ai_interview_test_tool`), `MONGODB_COLLECTION` (default `transcripts`)
 
 ## Scripts
 
@@ -185,7 +185,7 @@ Examples:
 
 - Docker (Express backend):
   ```bash
-  docker build -t jenin-express-backend:latest -f docker/Dockerfile.backend .
+  docker build -t ai-interview-test-tool-backend:latest -f docker/Dockerfile.backend .
   ```
 - Backend TypeScript build (optional):
   ```bash
