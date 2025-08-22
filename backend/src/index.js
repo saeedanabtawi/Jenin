@@ -45,8 +45,16 @@ app.get('/', (req, res) => {
 io.on('connection', (socket) => {
   console.log('Socket connected', socket.id);
 
+  // Per-socket STT state for chunked audio
+  const sttState = {
+    chunks: [], // array of Buffers
+    timer: null,
+  };
+
   socket.on('disconnect', () => {
     console.log('Socket disconnected', socket.id);
+    if (sttState.timer) clearTimeout(sttState.timer);
+    sttState.chunks = [];
   });
 
   // Receive audio chunks -> STT
@@ -55,9 +63,46 @@ io.on('connection', (socket) => {
       const stt = createSTT();
       const buffer = Buffer.from(String(audioBase64 || ''), 'base64');
       const result = await stt.transcribeAudio(buffer, { language: process.env.STT_LANGUAGE || 'en' });
-      socket.emit('interview:stt', { text: result.text, provider: stt.name });
+      socket.emit('interview:stt', { text: result.text, provider: stt.name, interim: false });
     } catch (err) {
       socket.emit('interview:error', { stage: 'stt', error: String((err && err.message) || err) });
+    }
+  });
+
+  // Streaming: receive chunk
+  socket.on('interview:audio_chunk', async ({ audioBase64 }) => {
+    try {
+      const buf = Buffer.from(String(audioBase64 || ''), 'base64');
+      sttState.chunks.push(buf);
+
+      // Debounce interim transcription
+      if (sttState.timer) clearTimeout(sttState.timer);
+      sttState.timer = setTimeout(async () => {
+        try {
+          const stt = createSTT();
+          const merged = Buffer.concat(sttState.chunks);
+          const result = await stt.transcribeAudio(merged, { language: process.env.STT_LANGUAGE || 'en' });
+          socket.emit('interview:stt', { text: result.text, provider: stt.name, interim: true });
+        } catch (err) {
+          socket.emit('interview:error', { stage: 'stt_interim', error: String((err && err.message) || err) });
+        }
+      }, 400);
+    } catch (err) {
+      socket.emit('interview:error', { stage: 'stt_chunk', error: String((err && err.message) || err) });
+    }
+  });
+
+  // Streaming: finalize
+  socket.on('interview:audio_end', async () => {
+    try {
+      if (sttState.timer) clearTimeout(sttState.timer);
+      const stt = createSTT();
+      const merged = Buffer.concat(sttState.chunks);
+      sttState.chunks = [];
+      const result = await stt.transcribeAudio(merged, { language: process.env.STT_LANGUAGE || 'en' });
+      socket.emit('interview:stt', { text: result.text, provider: stt.name, interim: false, final: true });
+    } catch (err) {
+      socket.emit('interview:error', { stage: 'stt_final', error: String((err && err.message) || err) });
     }
   });
 

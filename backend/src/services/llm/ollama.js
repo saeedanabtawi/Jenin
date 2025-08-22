@@ -1,13 +1,24 @@
 'use strict';
 
-// Placeholder Ollama LLM adapter
-// TODO: Implement by calling local Ollama endpoint (default: http://localhost:11434)
+// Ollama LLM adapter (local)
+// Default endpoint: http://localhost:11434
 
 async function generateText(prompt, options = {}) {
-  void prompt;
-  void options;
+  const baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+  const model = options.model || process.env.LLM_MODEL || 'llama3';
+
+  const resp = await fetch(`${baseUrl}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, prompt, stream: false }),
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`Ollama request failed: ${resp.status} ${txt}`);
+  }
+  const data = await resp.json();
   return {
-    text: '(stub) local model response via Ollama',
+    text: data?.response || '',
     provider: 'ollama',
     usage: {},
   };
