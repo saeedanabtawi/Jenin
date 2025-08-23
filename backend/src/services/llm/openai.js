@@ -19,7 +19,7 @@ async function generateText(prompt, options = {}) {
       { role: 'system', content: system },
       { role: 'user', content: prompt },
     ],
-    temperature: options.temperature ?? 0.7,
+    temperature: 1,
   });
 
   const choice = resp.choices?.[0]?.message?.content || '';

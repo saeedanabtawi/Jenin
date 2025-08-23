@@ -10,7 +10,8 @@ async function synthesizeSpeech(text, options = {}) {
 
   const model = options.model || process.env.TTS_MODEL || 'tts-1';
   const voice = options.voice || process.env.TTS_VOICE || 'alloy';
-  const format = options.format || process.env.TTS_FORMAT || 'mp3'; // mp3 | wav | flac | oga
+  // Supported: mp3 | wav | flac | opus | aac
+  const format = options.format || process.env.TTS_FORMAT || 'mp3';
 
   const resp = await fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST',
@@ -32,11 +33,13 @@ async function synthesizeSpeech(text, options = {}) {
   const arr = await resp.arrayBuffer();
   const buf = Buffer.from(arr);
 
+  const f = String(format).toLowerCase();
   const mime = (
-    format === 'wav' ? 'audio/wav'
-    : format === 'flac' ? 'audio/flac'
-    : format === 'oga' ? 'audio/ogg'
-    : 'audio/mpeg'
+    f === 'wav' ? 'audio/wav'
+    : f === 'flac' ? 'audio/flac'
+    : f === 'opus' ? 'audio/ogg' // ogg container with opus codec
+    : f === 'aac' ? 'audio/aac'
+    : 'audio/mpeg' // mp3 default
   );
 
   return {

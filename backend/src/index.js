@@ -14,6 +14,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const { requireApiKey, socketAuth } = require('./middleware/auth');
 const sessionsRouter = require('./routes/sessions');
+const evalRouter = require('./routes/eval');
 const transcriptStore = require('./services/store/mongoTranscriptStore');
 
 
@@ -29,7 +30,7 @@ io.use(socketAuth);
 
 app.use(cors());
 app.use(morgan('combined'));
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
 // Apply rate limiting to /api/* only
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
 app.use('/api', apiLimiter, requireApiKey);
@@ -37,6 +38,7 @@ app.use('/api', apiLimiter, requireApiKey);
 // API routes
 app.use('/api/v1/interview', interviewRouter);
 app.use('/api/v1/sessions', sessionsRouter);
+app.use('/api/v1/eval', evalRouter);
 
 // Health route
 app.get('/health', (req, res) => {
@@ -56,6 +58,7 @@ app.get('/health/providers', async (req, res) => {
   const status = {
     stt: {
       provider: sttProvider,
+      model: process.env.STT_MODEL || (sttProvider === 'whisper' ? 'whisper-1' : ''),
       configured: sttProvider === 'whisper'
         ? Boolean(process.env.OPENAI_API_KEY)
         : sttProvider === 'deepgram'
@@ -64,6 +67,7 @@ app.get('/health/providers', async (req, res) => {
     },
     llm: {
       provider: llmProvider,
+      model: process.env.LLM_MODEL || (llmProvider === 'openai' ? 'gpt-4o-mini' : ''),
       configured: llmProvider === 'openai'
         ? Boolean(process.env.OPENAI_API_KEY)
         : llmProvider === 'ollama'
@@ -72,6 +76,8 @@ app.get('/health/providers', async (req, res) => {
     },
     tts: {
       provider: ttsProvider,
+      model: process.env.TTS_MODEL || (ttsProvider === 'openai' ? 'tts-1' : ''),
+      voice: process.env.TTS_VOICE || (ttsProvider === 'openai' ? 'alloy' : ''),
       configured: ttsProvider === 'openai'
         ? Boolean(process.env.OPENAI_API_KEY)
         : ttsProvider === 'elevenlabs'
@@ -175,7 +181,7 @@ io.on('connection', async (socket) => {
       socket.emit('interview:reply', { text: out.text, provider: llm.name, tts: ttsResult });
       await transcriptStore.addEvent(socket.id, { type: 'llm_reply', text: out.text, provider: llm.name });
       if (ttsResult?.audioBase64) {
-        await transcriptStore.addEvent(socket.id, { type: 'tts', provider: 'elevenlabs', bytes: Buffer.byteLength(ttsResult.audioBase64, 'base64') });
+        await transcriptStore.addEvent(socket.id, { type: 'tts', provider: tts.name, bytes: Buffer.byteLength(ttsResult.audioBase64, 'base64') });
       }
     } catch (err) {
       socket.emit('interview:error', { stage: 'llm_tts', error: String((err && err.message) || err) });

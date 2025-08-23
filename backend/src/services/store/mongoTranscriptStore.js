@@ -43,7 +43,7 @@ const mongoStore = {
     try {
       const col = await getCollection();
       const now = nowIso();
-      const base = { id, startedAt: now, endedAt: null, events: [], createdAt: new Date(), updatedAt: new Date() };
+      const base = { id, startedAt: now, endedAt: null, events: [], createdAt: new Date() };
       await col.updateOne(
         { id },
         { $setOnInsert: base, $set: { updatedAt: new Date() } },
@@ -60,7 +60,7 @@ const mongoStore = {
     try {
       const col = await getCollection();
       const withTs = { ts: nowIso(), ...event };
-      const base = { id, startedAt: nowIso(), endedAt: null, events: [], createdAt: new Date(), updatedAt: new Date() };
+      const base = { id, startedAt: nowIso(), endedAt: null, events: [], createdAt: new Date() };
       await col.updateOne(
         { id },
         { $setOnInsert: base, $push: { events: withTs }, $set: { updatedAt: new Date() } },
