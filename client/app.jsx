@@ -993,6 +993,540 @@ function SessionsPanel({ serverUrl, apiKey }) {
   );
 }
 
+function InterviewConfigPanel({ serverUrl, apiKey }) {
+  const [configs, setConfigs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedId, setSelectedId] = useState('');
+  const [editor, setEditor] = useState('');
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [mode, setMode] = useState('form'); // 'form' | 'json'
+  const [formCfg, setFormCfg] = useState(null);
+  const dragIndexRef = useRef(-1);
+  const [newPhaseType, setNewPhaseType] = useState('technical');
+  const [newPhaseSkill, setNewPhaseSkill] = useState('');
+  const skillOptions = useMemo(() => {
+    const arr = Array.isArray(formCfg?.skills_focus) ? formCfg.skills_focus : [];
+    const set = new Set();
+    arr.forEach((s) => { const k = (s?.skill || '').trim(); if (k) set.add(k); });
+    return Array.from(set);
+  }, [formCfg?.skills_focus]);
+  const selectedCfg = useMemo(() => configs.find(c => c.config_id === selectedId) || null, [configs, selectedId]);
+
+  const headers = useMemo(() => {
+    const h = { 'Content-Type': 'application/json' };
+    if (apiKey) h['X-API-Key'] = apiKey;
+    return h;
+  }, [apiKey]);
+
+  async function refresh() {
+    setLoading(true); setError(null);
+    try {
+      const data = await jsonFetch(joinUrl(serverUrl, '/api/v1/interview/configs'), { headers });
+      setConfigs(Array.isArray(data.configs) ? data.configs : []);
+    } catch (e) {
+      setError(e.message || 'Failed to load');
+    } finally { setLoading(false); }
+  }
+
+  async function loadOne(id) {
+    setSelectedId(id); setError(null);
+    try {
+      const data = await jsonFetch(joinUrl(serverUrl, `/api/v1/interview/configs/${encodeURIComponent(id)}`), { headers });
+      const cfg = data?.interview_config || data;
+      const normalized = normalizeLoadedConfig(cfg);
+      setEditor(JSON.stringify(normalized, null, 2));
+      setFormCfg(normalized);
+    } catch (e) { setError(e.message || 'Failed to load config'); }
+  }
+
+  function newFromTemplate() {
+    const template = {
+      // config_id will be generated on save
+      name: 'Default 60-Min Interview',
+      phases_config: [
+        { type: 'introduction', phase_id: 'introduction', title: 'Introduction', enabled: true, order: 1, allocated_minutes: 5 },
+        { type: 'technical', phase_id: 'technical_1', title: 'Technical Questions', enabled: true, order: 2, allocated_minutes: 8, user_answer_minutes: 8, ai_ask_seconds: 0, question_source: 'ai', skill: 'react.js' },
+        { type: 'behavioral', phase_id: 'behavioral_1', title: 'Behavioral Question', enabled: true, order: 3, allocated_minutes: 4, user_answer_minutes: 4, ai_ask_seconds: 0, question_source: 'ai' },
+        { type: 'coding', phase_id: 'coding_1', title: 'Coding Challenge', enabled: true, order: 4, allocated_minutes: 30, user_answer_minutes: 30, ai_ask_seconds: 0, question_source: 'ai', skill: 'node.js' },
+      ],
+      skills_focus: [
+        { skill: 'react.js', level: 'senior' },
+        { skill: 'node.js', level: 'mid' },
+      ],
+    };
+    setSelectedId('');
+    const normalized = normalizeLoadedConfig(template);
+    setEditor(JSON.stringify(normalized, null, 2));
+    setFormCfg(normalized);
+  }
+
+  function validateCfg(cfg) {
+    const errs = [];
+    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) {
+      errs.push('interview_config must be an object');
+      return { ok: false, errs };
+    }
+    if (!cfg.config_id || typeof cfg.config_id !== 'string') errs.push('config_id required (string)');
+    if (!cfg.name || typeof cfg.name !== 'string') errs.push('name required (string)');
+    if (!Array.isArray(cfg.phases_config)) errs.push('phases_config must be an array');
+    else {
+      cfg.phases_config.forEach((p, i) => {
+        if (!p || typeof p !== 'object' || Array.isArray(p)) errs.push(`phases_config[${i}] must be object`);
+        if (!p?.phase_id || typeof p.phase_id !== 'string') errs.push(`phases_config[${i}].phase_id required (string)`);
+        if (!p?.title || typeof p.title !== 'string') errs.push(`phases_config[${i}].title required (string)`);
+        if (typeof p?.enabled !== 'boolean') errs.push(`phases_config[${i}].enabled boolean required`);
+        if (typeof p?.order !== 'number') errs.push(`phases_config[${i}].order number required`);
+        if (typeof p?.allocated_minutes !== 'number') errs.push(`phases_config[${i}].allocated_minutes number required`);
+      });
+    }
+    // Optional skills_focus validation
+    if (cfg.skills_focus != null) {
+      if (!Array.isArray(cfg.skills_focus)) errs.push('skills_focus must be an array');
+      else cfg.skills_focus.forEach((s, i) => {
+        if (!s || typeof s !== 'object' || Array.isArray(s)) { errs.push(`skills_focus[${i}] must be object`); return; }
+        if (!s.skill || typeof s.skill !== 'string') errs.push(`skills_focus[${i}].skill required (string)`);
+        if (s.level != null && !['junior','mid','senior'].includes(String(s.level))) errs.push(`skills_focus[${i}].level must be one of junior|mid|senior`);
+        // weight removed from UI; tolerate if present
+        if (s.weight != null && typeof s.weight !== 'number') errs.push(`skills_focus[${i}].weight must be number`);
+      });
+    }
+    return { ok: errs.length === 0, errs };
+  }
+
+  function validateLocal() {
+    try {
+      const parsed = JSON.parse(editor || '{}');
+      const cfg = parsed?.interview_config || parsed;
+      const v = validateCfg(cfg);
+      return { ok: v.ok, cfg, errs: v.errs };
+    } catch (e) {
+      return { ok: false, errs: ['JSON parse error: ' + (e?.message || e)] };
+    }
+  }
+
+  function onFormChange(next) {
+    setFormCfg(next);
+    try { setEditor(JSON.stringify(next, null, 2)); } catch {}
+  }
+
+  // Basic field update helpers (form mode)
+  function setBasic(field, value) {
+    if (!formCfg) return;
+    onFormChange({ ...formCfg, [field]: value });
+  }
+  // Helpers for phases and IDs
+  function genConfigId() { return 'cfg-' + Date.now().toString(36); }
+  function isIntroPhase(p) { return (p?.type === 'introduction') || (p?.phase_id === 'introduction'); }
+  function titleFor(type, skill) {
+    if (type === 'introduction') return 'Introduction';
+    if (type === 'technical') return `Technical Questions${skill ? ` - ${skill}` : ''}`;
+    if (type === 'behavioral') return `Behavioral Question${skill ? ` - ${skill}` : ''}`;
+    if (type === 'coding') return `Coding Challenge${skill ? ` - ${skill}` : ''}`;
+    return 'Phase';
+  }
+  function nextIdForType(arr, type) {
+    const prefix = type === 'technical' ? 'technical' : (type === 'behavioral' ? 'behavioral' : (type === 'coding' ? 'coding' : 'phase'));
+    const nums = arr
+      .map(p => String(p?.phase_id || ''))
+      .filter(id => id.startsWith(prefix + '_'))
+      .map(id => Number(id.split('_')[1] || 0) || 0);
+    const max = nums.reduce((m, n) => Math.max(m, n), 0);
+    return `${prefix}_${max + 1}`;
+  }
+  function recalcOrders(arr) { return arr.map((p, idx) => ({ ...p, order: idx + 1 })); }
+  function normalizeLoadedConfig(cfg) {
+    const next = JSON.parse(JSON.stringify(cfg || {}));
+    let arr = Array.isArray(next.phases_config) ? next.phases_config.slice() : [];
+    // Map setup to introduction, infer types
+    arr = arr.map((p) => {
+      const q = { ...p };
+      if (q.phase_id === 'setup') { q.phase_id = 'introduction'; q.title = 'Introduction'; q.type = 'introduction'; }
+      if (!q.type) {
+        const pid = String(q.phase_id || ''); const t = String(q.title || '');
+        if (pid === 'introduction' || /intro/i.test(t)) q.type = 'introduction';
+        else if (/tech/i.test(pid) || /Technical/i.test(t)) q.type = 'technical';
+        else if (/behavior/i.test(pid) || /Behavioral/i.test(t)) q.type = 'behavioral';
+        else if (/coding/i.test(pid) || /Coding/i.test(t)) q.type = 'coding';
+        else q.type = 'technical';
+      }
+      if (typeof q.enabled !== 'boolean') q.enabled = true;
+      if (typeof q.allocated_minutes !== 'number') q.allocated_minutes = 0;
+      // Defaults for new per-phase fields (non-intro)
+      if (q.type !== 'introduction') {
+        if (!q.question_source) q.question_source = 'ai';
+        if (typeof q.ai_ask_seconds !== 'number') q.ai_ask_seconds = 0;
+        if (typeof q.user_answer_minutes !== 'number') q.user_answer_minutes = Number(q.allocated_minutes || 0);
+      }
+      q.title = titleFor(q.type, q.skill);
+      return q;
+    });
+    // Ensure introduction exists and is first
+    if (!arr.some(isIntroPhase)) {
+      arr.unshift({ type: 'introduction', phase_id: 'introduction', title: 'Introduction', enabled: true, order: 1, allocated_minutes: 5 });
+    }
+    // Keep intro first, sort others by order
+    arr.sort((a, b) => {
+      if (isIntroPhase(a)) return -1; if (isIntroPhase(b)) return 1; return (Number(a.order || 0) - Number(b.order || 0));
+    });
+    arr = recalcOrders(arr);
+    next.phases_config = arr;
+    return next;
+  }
+  // Skills helpers
+  function addSkill() {
+    const arr = Array.isArray(formCfg?.skills_focus) ? formCfg.skills_focus.slice() : [];
+    arr.push({ skill: '', level: 'mid' });
+    onFormChange({ ...formCfg, skills_focus: arr });
+  }
+  function updateSkill(i, field, value) {
+    const arr = Array.isArray(formCfg?.skills_focus) ? formCfg.skills_focus.slice() : [];
+    if (!arr[i]) return;
+    arr[i] = { ...arr[i], [field]: value };
+    onFormChange({ ...formCfg, skills_focus: arr });
+  }
+  function removeSkill(i) {
+    const arr = Array.isArray(formCfg?.skills_focus) ? formCfg.skills_focus.slice() : [];
+    arr.splice(i, 1);
+    onFormChange({ ...formCfg, skills_focus: arr });
+  }
+  // Phases helpers
+  function addPhaseOfType(type, skill = '') {
+    const arr = Array.isArray(formCfg?.phases_config) ? formCfg.phases_config.slice() : [];
+    let out = arr.slice();
+    if (!out.some(isIntroPhase)) {
+      out.unshift({ type: 'introduction', phase_id: 'introduction', title: 'Introduction', enabled: true, order: 1, allocated_minutes: 5 });
+    }
+    const id = nextIdForType(out, type);
+    const defMin = type === 'coding' ? 30 : (type === 'behavioral' ? 4 : 8);
+    out.push({
+      type,
+      phase_id: id,
+      title: titleFor(type, skill),
+      enabled: true,
+      order: out.length + 1,
+      allocated_minutes: defMin,
+      user_answer_minutes: defMin,
+      ai_ask_seconds: 0,
+      question_source: 'ai',
+      skill,
+    });
+    out = recalcOrders(out);
+    onFormChange({ ...formCfg, phases_config: out });
+  }
+  function updatePhase(i, field, value) {
+    const arr = Array.isArray(formCfg?.phases_config) ? formCfg.phases_config.slice() : [];
+    if (!arr[i]) return;
+    const p = { ...arr[i], [field]: value };
+    if (field === 'type') {
+      const id = isIntroPhase(p) ? 'introduction' : nextIdForType(arr, value);
+      p.phase_id = id;
+      p.title = titleFor(value, p.skill);
+      p.enabled = true;
+    }
+    if (field === 'skill') {
+      p.title = titleFor(p.type, value);
+    }
+    if (field === 'allocated_minutes') {
+      const n = Number(value || 0);
+      p.allocated_minutes = isFinite(n) && n >= 0 ? n : 0;
+    }
+    if (field === 'user_answer_minutes') {
+      const m = Number(value || 0);
+      p.user_answer_minutes = isFinite(m) && m >= 0 ? m : 0;
+      p.allocated_minutes = p.user_answer_minutes;
+    }
+    if (field === 'ai_ask_seconds') {
+      const s = Number(value || 0);
+      p.ai_ask_seconds = isFinite(s) && s >= 0 ? s : 0;
+    }
+    if (field === 'question_source' && value !== 'custom') {
+      p.custom_question = '';
+    }
+    arr[i] = p;
+    onFormChange({ ...formCfg, phases_config: arr });
+  }
+  function removePhase(i) {
+    const arr = Array.isArray(formCfg?.phases_config) ? formCfg.phases_config.slice() : [];
+    if (arr[i] && isIntroPhase(arr[i])) return; // cannot remove introduction
+    arr.splice(i, 1);
+    const out = recalcOrders(arr);
+    onFormChange({ ...formCfg, phases_config: out });
+  }
+  function onPhaseDragStart(i) { dragIndexRef.current = i; }
+  function onPhaseDragOver(e) { try { e.preventDefault(); } catch {} }
+  function onPhaseDrop(i) {
+    const from = dragIndexRef.current;
+    const to = i;
+    dragIndexRef.current = -1;
+    if (from == null || from < 0 || to == null || to < 0) return;
+    const arr = Array.isArray(formCfg?.phases_config) ? formCfg.phases_config.slice() : [];
+    if (!arr[from] || !arr[to]) return;
+    if (isIntroPhase(arr[from]) || isIntroPhase(arr[to]) || to === 0 || from === 0) return; // keep intro fixed
+    const item = arr[from];
+    arr.splice(from, 1);
+    arr.splice(to, 0, item);
+    const out = recalcOrders(arr);
+    onFormChange({ ...formCfg, phases_config: out });
+  }
+  // removed old Unlimited toggle; using user_answer_minutes instead
+
+  async function save() {
+    setSaving(true); setError(null);
+    try {
+      let cfg;
+      if (mode === 'form') {
+        const cfgWithId = (!formCfg?.config_id) ? { ...formCfg, config_id: genConfigId() } : formCfg;
+        // Keep allocated_minutes in sync with user_answer_minutes for non-intro phases
+        const synced = {
+          ...cfgWithId,
+          phases_config: Array.isArray(cfgWithId.phases_config) ? cfgWithId.phases_config.map((p) => {
+            if (isIntroPhase(p)) return p;
+            const m = Number(p.user_answer_minutes || 0);
+            return { ...p, allocated_minutes: (isFinite(m) && m >= 0) ? m : 0 };
+          }) : []
+        };
+        const v = validateCfg(synced || {});
+        if (!v.ok) { setError(v.errs.join('\n')); return; }
+        cfg = synced;
+        if (cfgWithId !== formCfg) onFormChange(cfgWithId);
+      } else {
+        const v = validateLocal();
+        if (!v.ok) { setError(v.errs.join('\n')); return; }
+        cfg = v.cfg;
+      }
+      const id = cfg.config_id;
+      if (!id) { setError('config_id required'); return; }
+      // If selectedId matches, do PUT; else POST
+      if (selectedId && selectedId === id) {
+        await jsonFetch(joinUrl(serverUrl, `/api/v1/interview/configs/${encodeURIComponent(id)}`), {
+          method: 'PUT', headers, body: JSON.stringify({ interview_config: cfg })
+        });
+      } else {
+        await jsonFetch(joinUrl(serverUrl, '/api/v1/interview/configs'), {
+          method: 'POST', headers, body: JSON.stringify({ interview_config: cfg })
+        });
+      }
+      setSelectedId(id);
+      await refresh();
+    } catch (e) { setError(e.message || 'Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function del(id) {
+    if (!id) return;
+    if (!confirm(`Delete config ${id}?`)) return;
+    try {
+      await jsonFetch(joinUrl(serverUrl, `/api/v1/interview/configs/${encodeURIComponent(id)}`), { method: 'DELETE', headers });
+      if (selectedId === id) { setSelectedId(''); setEditor(''); }
+      await refresh();
+    } catch (e) { setError(e.message || 'Delete failed'); }
+  }
+
+  useEffect(() => { refresh(); }, [serverUrl, apiKey]);
+
+  return (
+    <div className="grid">
+      <div className="col-6">
+        <div className="row" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="primary" onClick={refresh} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
+          <button onClick={newFromTemplate}>New from template</button>
+          {error && <span className="badge warn">{error}</span>}
+        </div>
+        <pre>
+          {configs.length === 0 && <div className="small">No configs yet</div>}
+          {configs.map((c) => (
+            <div key={c.config_id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={() => loadOne(c.config_id)}>Load</button>
+              <button onClick={() => del(c.config_id)}>Delete</button>
+              <span className="small">{c.name || '(untitled config)'}</span>
+            </div>
+          ))}
+        </pre>
+      </div>
+      <div className="col-6">
+        <div className="row" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <h3 style={{ margin: 0 }}>Interview Config Editor</h3>
+          {selectedId && <span className="small">Selected: {selectedCfg?.name || selectedId}</span>}
+          <button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+          <button onClick={() => {
+            if (mode === 'form') {
+              const tmp = (!formCfg?.config_id) ? { ...formCfg, config_id: genConfigId() } : formCfg;
+              const v = validateCfg(tmp || {});
+              setError(v.ok ? 'Valid ✓' : (v.errs.join('\n')));
+            } else {
+              const v = validateLocal();
+              setError(v.ok ? 'Valid ✓' : (v.errs.join('\n')));
+            }
+          }}>Validate</button>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span className="small">Editor:</span>
+            <button className={mode === 'form' ? 'primary' : ''} onClick={() => {
+              if (mode !== 'form') {
+                // Try to hydrate form from current JSON
+                try {
+                  const parsed = JSON.parse(editor || '{}');
+                  const cfg = parsed?.interview_config || parsed;
+                  setFormCfg(normalizeLoadedConfig(cfg));
+                } catch {}
+              }
+              setMode('form');
+            }}>Form</button>
+            <button className={mode === 'json' ? 'primary' : ''} onClick={() => setMode('json')}>JSON</button>
+          </div>
+        </div>
+        {mode === 'json' ? (
+          <>
+            <textarea value={editor} onChange={(e) => setEditor(e.target.value)} style={{ width: '100%', height: 380, fontFamily: 'monospace' }} placeholder="Paste JSON for interview_config or wrap as { interview_config: {...} }" />
+          </>
+        ) : (
+          <>
+            {!formCfg && <div className="row"><span className="badge warn">Form not initialized. Load or create a config, or switch to JSON.</span></div>}
+            {formCfg && (
+              <div className="grid">
+                <div className="col-12">
+                  <h4 style={{ marginTop: 0 }}>Basics</h4>
+                  <div className="row" style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <label className="small">Name</label>
+                      <input value={formCfg.name || ''} onChange={(e) => setBasic('name', e.target.value)} placeholder="Display name" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="col-12">
+                  <h4>Skills Focus</h4>
+                  {(!Array.isArray(formCfg.skills_focus) || formCfg.skills_focus.length === 0) && (
+                    <div className="small">No skills yet. Add some.</div>
+                  )}
+                  {Array.isArray(formCfg.skills_focus) && formCfg.skills_focus.map((s, i) => (
+                    <div key={i} className="row" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input style={{ flex: 2 }} placeholder="Skill (e.g., react.js)" value={s.skill || ''} onChange={(e) => updateSkill(i, 'skill', e.target.value)} />
+                      <select style={{ flex: 1 }} value={String(s.level || 'mid')} onChange={(e) => updateSkill(i, 'level', e.target.value)}>
+                        <option value="junior">junior</option>
+                        <option value="mid">mid</option>
+                        <option value="senior">senior</option>
+                      </select>
+                      <button className="ghost" onClick={() => removeSkill(i)}>Remove</button>
+                    </div>
+                  ))}
+                  <div className="row"><button onClick={addSkill}>Add Skill</button></div>
+                </div>
+
+                <div className="col-12">
+                  <h4>Phases</h4>
+                  {(!Array.isArray(formCfg.phases_config) || formCfg.phases_config.length === 0) && (
+                    <div className="small">No phases yet. Add phases describing the interview flow.</div>
+                  )}
+                  {Array.isArray(formCfg.phases_config) && formCfg.phases_config.map((p, i) => {
+                    const isIntro = isIntroPhase(p);
+                    return (
+                      <div
+                        key={i}
+                        className="row"
+                        style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 8, marginBottom: 8, opacity: isIntro ? 0.95 : 1 }}
+                        draggable={!isIntro}
+                        onDragStart={() => onPhaseDragStart(i)}
+                        onDragOver={onPhaseDragOver}
+                        onDrop={() => onPhaseDrop(i)}
+                      >
+                        <div className="row" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <div title={isIntro ? 'Introduction is fixed' : 'Drag to reorder'} style={{ cursor: isIntro ? 'default' : 'grab', userSelect: 'none' }}>⠿</div>
+                          <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+                            <label className="small">Type</label>
+                            {isIntro ? (
+                              <div>Introduction</div>
+                            ) : (
+                              <select value={p.type || 'technical'} onChange={(e) => updatePhase(i, 'type', e.target.value)}>
+                                <option value="technical">Technical Questions</option>
+                                <option value="behavioral">Behavioral Requisition</option>
+                                <option value="coding">Coding Challenges</option>
+                              </select>
+                            )}
+                          </div>
+                          {!isIntro && (
+                            <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+                              <label className="small">Skill</label>
+                              <select value={p.skill || ''} onChange={(e) => updatePhase(i, 'skill', e.target.value)}>
+                                <option value="">(none)</option>
+                                {skillOptions.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
+                              </select>
+                            </div>
+                          )}
+                          {isIntro ? (
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <div>
+                                <label className="small">Duration minutes</label>
+                                <input type="number" style={{ width: 120 }} min="0"
+                                       value={Number(p.allocated_minutes || 0)}
+                                       onChange={(e) => updatePhase(i, 'allocated_minutes', Number(e.target.value))} />
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{ flex: '2 1 360px', minWidth: 0 }}>
+                                <label className="small">Question</label>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <select value={p.question_source || 'ai'} onChange={(e) => updatePhase(i, 'question_source', e.target.value)}>
+                                    <option value="ai">AI generated</option>
+                                    <option value="custom">Custom</option>
+                                  </select>
+                                  {p.question_source === 'custom' && (
+                                    <input style={{ flex: 1, minWidth: 0 }} placeholder="Enter your question"
+                                           value={p.custom_question || ''}
+                                           onChange={(e) => updatePhase(i, 'custom_question', e.target.value)} />
+                                  )}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <div>
+                                  <label className="small">AI ask time (sec)</label>
+                                  <input type="number" style={{ width: 120 }} min="0"
+                                         value={Number(p.ai_ask_seconds || 0)}
+                                         onChange={(e) => updatePhase(i, 'ai_ask_seconds', Number(e.target.value))} />
+                                </div>
+                                <div>
+                                  <label className="small">User answer limit (min)</label>
+                                  <input type="number" style={{ width: 140 }} min="0"
+                                         value={Number(p.user_answer_minutes || 0)}
+                                         onChange={(e) => updatePhase(i, 'user_answer_minutes', Number(e.target.value))} />
+                                  <div className="small" style={{ opacity: 0.6 }}>0 = unlimited</div>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                          {!isIntro && (
+                            <button className="ghost" style={{ marginLeft: 'auto', flex: '0 0 auto' }} onClick={() => removePhase(i)}>Remove</button>
+                          )}
+                        </div>
+                        <div className="small" style={{ opacity: 0.7, marginTop: 4 }}>Title: {titleFor(p.type, p.skill)}</div>
+                      </div>
+                    );
+                  })}
+                  <div className="row" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span className="small">Add phase:</span>
+                    <select value={newPhaseType} onChange={(e) => setNewPhaseType(e.target.value)}>
+                      <option value="technical">Technical Questions</option>
+                      <option value="behavioral">Behavioral Requisition</option>
+                      <option value="coding">Coding Challenges</option>
+                    </select>
+                    <select value={newPhaseSkill} onChange={(e) => setNewPhaseSkill(e.target.value)}>
+                      <option value="">(no skill)</option>
+                      {skillOptions.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
+                    </select>
+                    <button onClick={() => addPhaseOfType(newPhaseType, newPhaseSkill)}>Add</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+        {error && <div className="row"><span className="badge warn">{error}</span></div>}
+      </div>
+    </div>
+  );
+}
+
 function SettingsPanel({ settings }) {
   return (
     <div className="grid">
@@ -1009,6 +1543,262 @@ function SettingsPanel({ settings }) {
           <label className="small"><input type="checkbox" checked={!!settings.ttsAutoplay} onChange={(e) => settings.setTtsAutoplay(e.target.checked)} /> TTS autoplay queue</label>
         </div>
       </div>
+    </div>
+  );
+}
+
+function StartInterviewPanel({ serverUrl, apiKey, settings }) {
+  const [configs, setConfigs] = useState([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [cfg, setCfg] = useState(null);
+  const [starting, setStarting] = useState(false);
+  const [started, setStarted] = useState(false);
+  const [steps, setSteps] = useState([]); // [{ phase, question, limitSec }]
+  const [idx, setIdx] = useState(0);
+  const [question, setQuestion] = useState('');
+  const [speaking, setSpeaking] = useState(false);
+  const [canAnswer, setCanAnswer] = useState(false);
+  const [answerLeft, setAnswerLeft] = useState(0);
+  const [recording, setRecording] = useState(false);
+  const audioRef = useRef(null);
+  const media = useRef({ stream: null, recorder: null, raf: 0, ctx: null, analyser: null });
+  const timerRef = useRef(0);
+
+  function mmss(s) {
+    const n = Math.max(0, Math.floor(s));
+    const m = Math.floor(n / 60);
+    const r = n % 60;
+    return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`;
+  }
+
+  async function refreshConfigs() {
+    try {
+      const list = await jsonFetch(joinUrl(serverUrl, '/api/v1/interview/configs'));
+      setConfigs(list?.configs || []);
+    } catch {}
+  }
+
+  async function loadConfig(id) {
+    if (!id) { setCfg(null); return; }
+    try {
+      const data = await jsonFetch(joinUrl(serverUrl, `/api/v1/interview/configs/${encodeURIComponent(id)}`));
+      const base = data?.interview_config || data;
+      // light normalization for run
+      const arr = (Array.isArray(base?.phases_config) ? base.phases_config : []).slice()
+        .map((p) => ({
+          ...p,
+          type: p.type || (p.phase_id === 'introduction' ? 'introduction' : 'technical'),
+          allocated_minutes: typeof p.allocated_minutes === 'number' ? p.allocated_minutes : 0,
+          question_source: p.question_source || (p.type === 'introduction' ? undefined : 'ai'),
+          ai_ask_seconds: typeof p.ai_ask_seconds === 'number' ? p.ai_ask_seconds : 0,
+          user_answer_minutes: typeof p.user_answer_minutes === 'number' ? p.user_answer_minutes : (p.type === 'introduction' ? p.allocated_minutes : p.allocated_minutes),
+        }))
+        .sort((a, b) => (Number(a.order || 0) - Number(b.order || 0)));
+      setCfg({ ...base, phases_config: arr });
+    } catch {}
+  }
+
+  useEffect(() => { refreshConfigs(); }, [serverUrl, apiKey]);
+  useEffect(() => { loadConfig(selectedId); }, [selectedId, serverUrl, apiKey]);
+
+  function applicablePhase(p) {
+    if (!p?.enabled) return false;
+    const t = String(p.type || '');
+    if (t === 'introduction') return false;
+    if (t === 'coding') return false; // skip coding per request
+    return true; // technical, behavioral, others
+  }
+
+  async function genQuestion(p) {
+    if (p.question_source === 'custom' && (p.custom_question || '').trim()) {
+      return String(p.custom_question).trim();
+    }
+    // AI generation: short, no preamble
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['X-API-Key'] = apiKey;
+    const skill = p.skill ? ` about ${p.skill}` : '';
+    const prompt = `Generate ONE concise ${p.type} interview question${skill}. Only output the question text, under 120 characters. No preface, numbering, or quotes.`;
+    const data = await jsonFetch(joinUrl(serverUrl, '/api/v1/eval/llm'), {
+      method: 'POST', headers, body: JSON.stringify({ prompt })
+    });
+    return (data?.text || '').trim().replace(/^"|"$/g, '');
+  }
+
+  async function speak(text, p) {
+    // local helper to simulate TTS duration
+    const simulate = async (secHint) => {
+      setSpeaking(true);
+      setCanAnswer(false);
+      const secs = Math.max(
+        1,
+        Number(secHint || 0) || Math.ceil(Math.min(8, Math.max(2, String(text || '').split(/\s+/).length / 2)))
+      );
+      await new Promise((r) => setTimeout(r, secs * 1000));
+      setSpeaking(false);
+      setCanAnswer(true);
+    };
+
+    if (!settings.wantTTS) {
+      await simulate(p?.ai_ask_seconds);
+      return;
+    }
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['X-API-Key'] = apiKey;
+    setCanAnswer(false);
+    try {
+      const data = await jsonFetch(joinUrl(serverUrl, '/api/v1/eval/tts'), {
+        method: 'POST', headers, body: JSON.stringify({ text })
+      });
+      const url = `data:${data.mime};base64,${data.audioBase64}`;
+      const el = audioRef.current;
+      await new Promise((resolve) => {
+        el.onplay = () => { setSpeaking(true); };
+        el.onended = () => { setSpeaking(false); resolve(); };
+        el.onerror = () => { setSpeaking(false); resolve(); };
+        el.src = url; el.play().catch(() => { setSpeaking(false); resolve(); });
+      });
+    } catch (e) {
+      // Fallback if TTS fails (e.g., provider not configured)
+      await simulate(p?.ai_ask_seconds);
+    } finally {
+      setCanAnswer(true);
+    }
+  }
+
+  function clearTimer() {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = 0; }
+  }
+
+  function startAnswerTimer(limitSec) {
+    clearTimer();
+    if (!limitSec || limitSec <= 0) { setAnswerLeft(0); return; }
+    setAnswerLeft(limitSec);
+    timerRef.current = setInterval(() => {
+      setAnswerLeft((prev) => {
+        const next = Math.max(0, prev - 1);
+        if (next === 0) { clearTimer(); if (recording) stopRec(true); else finishAnswer(); }
+        return next;
+      });
+    }, 1000);
+  }
+
+  async function startInterview() {
+    if (!cfg) return;
+    setStarting(true);
+    try {
+      const applicable = (cfg.phases_config || []).filter(applicablePhase);
+      const runSteps = applicable.map((p) => ({ phase: p, question: '', limitSec: Math.max(0, Math.floor((Number(p.user_answer_minutes || 0)) * 60)) }));
+      setSteps(runSteps); setIdx(0); setStarted(true);
+      await askStep(0, runSteps);
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function askStep(i, list = steps) {
+    if (!list[i]) { setQuestion(''); setCanAnswer(false); return; }
+    const p = list[i].phase;
+    setCanAnswer(false); setQuestion('Preparing question…');
+    const q = await genQuestion(p).catch(() => '(question)');
+    setQuestion(q);
+    await speak(q, p);
+    startAnswerTimer(list[i].limitSec);
+  }
+
+  async function finishAnswer() {
+    // move to next step or finish
+    const next = idx + 1;
+    if (next >= steps.length) {
+      setStarted(false); setQuestion(''); setSteps([]); clearTimer(); setAnswerLeft(0); setIdx(0); setCanAnswer(false);
+      return;
+    }
+    setIdx(next);
+    await askStep(next);
+  }
+
+  async function startRec() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        try {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          const arr = await blob.arrayBuffer();
+          const b64 = btoa(String.fromCharCode(...new Uint8Array(arr)));
+          const headers = { 'Content-Type': 'application/json' };
+          if (apiKey) headers['X-API-Key'] = apiKey;
+          await jsonFetch(joinUrl(serverUrl, '/api/v1/eval/stt'), { method: 'POST', headers, body: JSON.stringify({ audioBase64: b64, mimetype: 'audio/webm' }) });
+        } catch {}
+        // advance regardless of STT success
+        try { stream.getTracks().forEach(t => t.stop()); } catch {}
+        setRecording(false);
+        finishAnswer();
+      };
+      // simple VU meter (optional)
+      const ctx = new AudioContext(); const src = ctx.createMediaStreamSource(stream); const analyser = ctx.createAnalyser(); analyser.fftSize = 512; src.connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      const loop = () => { analyser.getByteTimeDomainData(data); media.current.raf = requestAnimationFrame(loop); };
+      media.current = { stream, recorder, raf: requestAnimationFrame(loop), ctx, analyser };
+      recorder.start(200);
+      setRecording(true);
+    } catch (e) {
+      alert('Mic error: ' + (e?.message || e));
+    }
+  }
+
+  function stopRec(auto = false) {
+    const m = media.current;
+    if (m.recorder && m.recorder.state !== 'inactive') m.recorder.stop();
+    if (m.raf) cancelAnimationFrame(m.raf);
+    if (m.ctx) m.ctx.close().catch(() => {});
+    if (!auto) { try { m.stream?.getTracks()?.forEach(t => t.stop()); } catch {} }
+  }
+
+  return (
+    <div className="grid">
+      <div className="col-12">
+        <h3>Start Interview</h3>
+        {!started && (
+          <div className="row" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span className="small">Interview config:</span>
+            <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
+              <option value="">Select config…</option>
+              {configs.map(c => (<option key={c.config_id} value={c.config_id}>{c.name || c.config_id}</option>))}
+            </select>
+            <button onClick={refreshConfigs}>Refresh</button>
+            <button className="primary" onClick={startInterview} disabled={!cfg || starting}>{starting ? 'Starting…' : 'Start'}</button>
+          </div>
+        )}
+      </div>
+
+      {started && (
+        <div className="col-12" style={{ position: 'relative', minHeight: 320, background: 'rgba(148,163,184,0.08)', borderRadius: 12, padding: 16 }}>
+          {/* Answer timer top-left */}
+          <div style={{ position: 'absolute', top: 12, left: 12, fontWeight: 600 }}>
+            {answerLeft > 0 ? `Time left: ${mmss(answerLeft)}` : 'Unlimited'}
+          </div>
+          {/* Question on top */}
+          <div style={{ textAlign: 'center', marginTop: 24, minHeight: 28 }}>
+            <div style={{ fontSize: 18, fontWeight: 600 }}>{question}</div>
+          </div>
+          {/* Voice animation center */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 32, marginBottom: 24 }}>
+            <div className={`voice-circle ${speaking ? 'active' : ''}`}></div>
+          </div>
+          {/* Control button */}
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            {!recording ? (
+              <button className="primary" onClick={startRec} disabled={!canAnswer}>Start answering</button>
+            ) : (
+              <button onClick={() => stopRec(false)}>Stop recording</button>
+            )}
+          </div>
+          <audio ref={audioRef} hidden />
+        </div>
+      )}
     </div>
   );
 }
@@ -1065,11 +1855,13 @@ function App() {
       />
 
       <div className="tabs">
-        {['stt', 'llm', 'tts', 'avatar', 'sessions', 'health', 'settings'].map((t) => (
+        {['start', 'stt', 'llm', 'tts', 'avatar', 'sessions', 'interview-config', 'health', 'settings'].map((t) => (
           <div key={t} className={`tab ${activeTab === t ? 'active' : ''}`} onClick={() => setActiveTab(t)}>
             {t.toUpperCase()
+              .replace('START', 'Start Interview')
               .replace('AVATAR', 'Avatar')
               .replace('SESSIONS', 'Sessions')
+              .replace('INTERVIEW-CONFIG', 'Interview Config')
               .replace('HEALTH', 'Health')
               .replace('SETTINGS', 'Settings')}
           </div>
@@ -1088,11 +1880,17 @@ function App() {
       {activeTab === 'tts' && (
         <TtsEvalPanel serverUrl={serverUrl} apiKey={apiKey} />
       )}
+      {activeTab === 'start' && (
+        <StartInterviewPanel serverUrl={serverUrl} apiKey={apiKey} settings={settings} />
+      )}
       {activeTab === 'avatar' && (
         <AvatarPanel />
       )}
       {activeTab === 'sessions' && (
         <SessionsPanel serverUrl={serverUrl} apiKey={apiKey} />
+      )}
+      {activeTab === 'interview-config' && (
+        <InterviewConfigPanel serverUrl={serverUrl} apiKey={apiKey} />
       )}
       {activeTab === 'settings' && (
         <SettingsPanel settings={settings} />

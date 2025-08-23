@@ -34,6 +34,14 @@
       .meter { height: 10px; background: #e5e7eb; border-radius: 10px; overflow: hidden; }
       .meter > span { display: block; height: 100%; background: #22c55e; width: 0%; transition: width 80ms linear; }
 
+      /* Voice animation circle for AI speaking */
+      .voice-circle { width: 64px; height: 64px; border-radius: 50%; border: 2px solid #2563eb66; background: rgba(37, 99, 235, 0.12); position: relative; }
+      .voice-circle::after { content: ''; position: absolute; inset: -8px; border-radius: 50%; border: 2px solid rgba(37, 99, 235, 0.35); opacity: 0; transform: scale(0.8); }
+      .voice-circle.active { animation: pulse-ring 1.2s ease-out infinite; }
+      .voice-circle.active::after { animation: ripple 1.2s ease-out infinite; }
+      @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.45); } 70% { box-shadow: 0 0 0 14px rgba(37, 99, 235, 0); } 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); } }
+      @keyframes ripple { 0% { opacity: 0.6; transform: scale(0.8); } 70% { opacity: 0; transform: scale(1.25); } 100% { opacity: 0; transform: scale(1.25); } }
+
       /* Responsive: stack two-column layouts on smaller screens */
       @media (max-width: 1024px) {
         .col-6 { grid-column: span 12; }
