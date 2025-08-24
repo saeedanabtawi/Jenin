@@ -993,6 +993,155 @@ function SessionsPanel({ serverUrl, apiKey }) {
   );
 }
 
+function InterviewsPanel({ serverUrl, apiKey }) {
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [filter, setFilter] = useState('');
+  const [maxPrune, setMaxPrune] = useState(200);
+
+  const headers = useMemo(() => {
+    const h = { 'Content-Type': 'application/json' };
+    if (apiKey) h['X-API-Key'] = apiKey;
+    return h;
+  }, [apiKey]);
+
+  async function refresh() {
+    setLoading(true); setError(null);
+    try {
+      const data = await jsonFetch(joinUrl(serverUrl, '/api/v1/sessions'), { headers });
+      setSessions(Array.isArray(data.sessions) ? data.sessions : []);
+    } catch (e) { setError(e.message || 'Failed'); }
+    finally { setLoading(false); }
+  }
+
+  async function loadDetail(id) {
+    setSelected(id); setDetail(null);
+    try {
+      const data = await jsonFetch(joinUrl(serverUrl, `/api/v1/sessions/${id}`), { headers });
+      setDetail(data || null);
+    } catch (e) { setDetail({ error: e.message, body: e.body }); }
+  }
+
+  async function del(id) {
+    if (!confirm('Delete interview ' + id + '?')) return;
+    try { await jsonFetch(joinUrl(serverUrl, `/api/v1/sessions/${id}`), { method: 'DELETE', headers }); await refresh(); if (selected === id) { setSelected(null); setDetail(null); } } catch {}
+  }
+
+  async function prune() {
+    try {
+      const url = joinUrl(serverUrl, `/api/v1/sessions?max=${encodeURIComponent(Number(maxPrune || 0))}`);
+      await jsonFetch(url, { method: 'DELETE', headers });
+      await refresh();
+    } catch {}
+  }
+
+  function downloadSelected() {
+    if (!selected || !detail) return;
+    const blob = new Blob([JSON.stringify(detail, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${selected}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  function summarizeSession(d) {
+    const ev = Array.isArray(d?.events) ? d.events : [];
+    const counts = ev.reduce((m, e) => { const k = e?.type || 'unknown'; m[k] = (m[k] || 0) + 1; return m; }, {});
+    const questions = ev.filter(e => e?.type === 'question');
+    const lastError = [...ev].reverse().find(e => e?.type === 'error') || null;
+    const startedAt = d?.startedAt ? new Date(d.startedAt) : null;
+    const endedAt = d?.endedAt ? new Date(d.endedAt) : null;
+    const lastTs = ev.length ? new Date(ev[ev.length - 1].ts || d?.endedAt || d?.startedAt || Date.now()) : (endedAt || startedAt || new Date());
+    const durationSec = startedAt ? Math.max(0, Math.round(((endedAt || lastTs) - startedAt) / 1000)) : null;
+    return { counts, questions, lastError, durationSec };
+  }
+
+  const filtered = useMemo(() => {
+    const q = (filter || '').trim().toLowerCase();
+    if (!q) return sessions;
+    return sessions.filter(s => String(s.id).toLowerCase().includes(q));
+  }, [sessions, filter]);
+
+  useEffect(() => { refresh(); }, [serverUrl, apiKey]);
+
+  const summary = detail ? summarizeSession(detail) : null;
+
+  return (
+    <div className="grid">
+      <div className="col-6">
+        <div className="row" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="primary" onClick={refresh} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
+          <span className="small">{sessions.length} total</span>
+          {error && <span className="badge warn">{error}</span>}
+          <input placeholder="Filter by ID…" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ marginLeft: 8 }} />
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span className="small">Prune to max:</span>
+            <input style={{ width: 80 }} type="number" min="1" value={maxPrune} onChange={(e) => setMaxPrune(e.target.value)} />
+            <button onClick={prune}>Prune</button>
+          </div>
+        </div>
+        <pre>
+          {filtered.map((s) => (
+            <div key={s.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={() => loadDetail(s.id)}>View</button>
+              <button onClick={() => del(s.id)}>Delete</button>
+              <code style={{ userSelect: 'all' }}>{s.id}</code>
+              <span className="small">{s.eventCount} events</span>
+            </div>
+          ))}
+        </pre>
+      </div>
+      <div className="col-6">
+        <div className="row" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <h3 style={{ margin: 0 }}>Interview Detail</h3>
+          {selected && <button onClick={downloadSelected}>Download JSON</button>}
+        </div>
+        {!detail && <pre>—</pre>}
+        {detail && (
+          <div>
+            <div className="row" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <strong>ID:</strong> <code style={{ userSelect: 'all' }}>{detail.id}</code>
+              {typeof summary?.durationSec === 'number' && (
+                <span className="badge ok">Duration: {summary.durationSec}s</span>
+              )}
+              <span className="badge">Events: {Array.isArray(detail.events) ? detail.events.length : 0}</span>
+              <span className="badge">Questions: {summary?.questions?.length || 0}</span>
+              {summary?.lastError && <span className="badge warn">Last error at {summary.lastError.ts}</span>}
+            </div>
+            <h4 className="small" style={{ marginTop: 12 }}>Event timeline</h4>
+            <pre>
+              {Array.isArray(detail.events) && detail.events.length ? (
+                detail.events.map((e, i) => (
+                  <div key={i}>
+                    <span className="small">[{e.ts || '—'}]</span> <strong>{e.type}</strong>
+                    {e.text ? (<>: {String(e.text).slice(0, 160)}{String(e.text).length > 160 ? '…' : ''}</>) : null}
+                    {e.error ? (<>: {String(e.error).slice(0, 160)}{String(e.error).length > 160 ? '…' : ''}</>) : null}
+                    {e.type === 'audio_recording' && e.url ? (
+                      <div style={{ marginTop: 4 }}>
+                        <audio
+                          controls
+                          src={joinUrl(serverUrl, e.url + (apiKey ? `&apiKey=${encodeURIComponent(apiKey)}` : ''))}
+                        />
+                        <div className="small">
+                          {(e.mime || 'audio')} {typeof e.bytes === 'number' ? `• ${e.bytes} bytes` : ''}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ))
+              ) : '—'}
+            </pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function InterviewConfigPanel({ serverUrl, apiKey }) {
   const [configs, setConfigs] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1613,15 +1762,30 @@ function StartInterviewPanel({ serverUrl, apiKey, settings }) {
     if (p.question_source === 'custom' && (p.custom_question || '').trim()) {
       return String(p.custom_question).trim();
     }
-    // AI generation: short, no preamble
+    // Try AI generation; fall back heuristically if provider not configured
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers['X-API-Key'] = apiKey;
-    const skill = p.skill ? ` about ${p.skill}` : '';
-    const prompt = `Generate ONE concise ${p.type} interview question${skill}. Only output the question text, under 120 characters. No preface, numbering, or quotes.`;
-    const data = await jsonFetch(joinUrl(serverUrl, '/api/v1/eval/llm'), {
-      method: 'POST', headers, body: JSON.stringify({ prompt })
-    });
-    return (data?.text || '').trim().replace(/^"|"$/g, '');
+    const skill = (p.skill || '').trim();
+    const prompt = `Generate ONE concise ${p.type} interview question${skill ? ` about ${skill}` : ''}. Only output the question text, under 120 characters. No preface, numbering, or quotes.`;
+    try {
+      const data = await jsonFetch(joinUrl(serverUrl, '/api/v1/eval/llm'), {
+        method: 'POST', headers, body: JSON.stringify({ prompt })
+      });
+      const text = (data?.text || '').trim().replace(/^"|"$/g, '');
+      if (text) return text;
+    } catch (_) { /* fall through to heuristics */ }
+
+    // Heuristic fallback questions
+    const t = String(p.type || '').toLowerCase();
+    if (t === 'technical') {
+      if (skill) return `Briefly explain ${skill} and a common pitfall developers should avoid.`;
+      return 'Explain a technical concept you used recently and why it mattered.';
+    }
+    if (t === 'behavioral') {
+      return 'Tell me about a time you faced a tough challenge at work and how you handled it.';
+    }
+    // default
+    return 'Describe a recent project you are proud of and your specific contributions.';
   }
 
   async function speak(text, p) {
@@ -1855,12 +2019,12 @@ function App() {
       />
 
       <div className="tabs">
-        {['start', 'stt', 'llm', 'tts', 'avatar', 'sessions', 'interview-config', 'health', 'settings'].map((t) => (
+        {['start', 'stt', 'llm', 'tts', 'avatar', 'interviews', 'interview-config', 'health', 'settings'].map((t) => (
           <div key={t} className={`tab ${activeTab === t ? 'active' : ''}`} onClick={() => setActiveTab(t)}>
             {t.toUpperCase()
               .replace('START', 'Start Interview')
               .replace('AVATAR', 'Avatar')
-              .replace('SESSIONS', 'Sessions')
+              .replace('INTERVIEWS', 'Interviews')
               .replace('INTERVIEW-CONFIG', 'Interview Config')
               .replace('HEALTH', 'Health')
               .replace('SETTINGS', 'Settings')}
@@ -1886,8 +2050,8 @@ function App() {
       {activeTab === 'avatar' && (
         <AvatarPanel />
       )}
-      {activeTab === 'sessions' && (
-        <SessionsPanel serverUrl={serverUrl} apiKey={apiKey} />
+      {activeTab === 'interviews' && (
+        <InterviewsPanel serverUrl={serverUrl} apiKey={apiKey} />
       )}
       {activeTab === 'interview-config' && (
         <InterviewConfigPanel serverUrl={serverUrl} apiKey={apiKey} />

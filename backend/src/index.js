@@ -16,6 +16,8 @@ const { requireApiKey, socketAuth } = require('./middleware/auth');
 const sessionsRouter = require('./routes/sessions');
 const evalRouter = require('./routes/eval');
 const transcriptStore = require('./services/store/mongoTranscriptStore');
+const mediaRouter = require('./routes/media');
+const storage = require('./services/storage/s3');
 
 
 const app = express();
@@ -34,6 +36,9 @@ app.use(express.json({ limit: '15mb' }));
 // Apply rate limiting to /api/* only
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
 app.use('/api', apiLimiter, requireApiKey);
+
+// Media routes (protected by API key, but not rate-limited like /api)
+app.use('/media', requireApiKey, mediaRouter);
 
 // API routes
 app.use('/api/v1/interview', interviewRouter);
@@ -161,6 +166,19 @@ io.on('connection', async (socket) => {
       const result = await stt.transcribeAudio(merged, { language: process.env.STT_LANGUAGE || 'en' });
       socket.emit('interview:stt', { text: result.text, provider: stt.name, interim: false, final: true });
       await transcriptStore.addEvent(socket.id, { type: 'stt_final', text: result.text, provider: stt.name });
+
+      // Upload final audio to storage (MinIO/S3) if enabled
+      if (storage.enabled() && merged && merged.length > 0) {
+        try {
+          const key = storage.generateKey(socket.id, 'webm');
+          await storage.putObject({ key, body: merged, contentType: 'audio/webm' });
+          const url = `/media/recording?key=${encodeURIComponent(key)}`;
+          await transcriptStore.addEvent(socket.id, { type: 'audio_recording', key, url, mime: 'audio/webm', bytes: merged.length });
+        } catch (e) {
+          console.error('Audio upload error:', e && e.message || e);
+          await transcriptStore.addEvent(socket.id, { type: 'error', stage: 'audio_upload', error: String((e && e.message) || e) });
+        }
+      }
     } catch (err) {
       socket.emit('interview:error', { stage: 'stt_final', error: String((err && err.message) || err) });
       await transcriptStore.addEvent(socket.id, { type: 'error', stage: 'stt_final', error: String((err && err.message) || err) });
@@ -204,6 +222,17 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 8000;
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`Server listening on http://localhost:${PORT}`);
+  try {
+    await storage.init();
+    if (storage.enabled()) {
+      const cfg = storage.getConfig();
+      console.log(`Storage enabled: bucket='${cfg.bucket}' endpoint='${cfg.endpoint}'`);
+    } else {
+      console.log('Storage disabled (set MINIO_ENDPOINT or MINIO_ENABLED=true to enable)');
+    }
+  } catch (e) {
+    console.error('Storage init failed:', e && e.message || e);
+  }
 });

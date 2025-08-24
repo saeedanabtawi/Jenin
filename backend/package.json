@@ -20,7 +20,8 @@
     "elevenlabs": "^0.11.0",
     "express-rate-limit": "^7.3.0",
     "morgan": "^1.10.0",
-    "mongodb": "^6.8.0"
+    "mongodb": "^6.8.0",
+    "@aws-sdk/client-s3": "^3.620.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

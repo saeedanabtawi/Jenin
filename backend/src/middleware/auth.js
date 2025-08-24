@@ -10,8 +10,10 @@ function requireApiKey(req, res, next) {
   const bearer = auth && auth.toLowerCase().startsWith('bearer ')
     ? auth.slice(7)
     : null;
+  // Allow query param for cases where custom headers are not possible (e.g., <audio src>)
+  const queryKey = req.query?.apiKey;
 
-  const provided = headerKey || bearer;
+  const provided = headerKey || bearer || queryKey;
   if (provided && provided === required) return next();
 
   return res.status(401).json({ error: 'Unauthorized' });
