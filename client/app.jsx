@@ -1753,7 +1753,7 @@ function StartInterviewPanel({ serverUrl, apiKey, settings }) {
   function applicablePhase(p) {
     if (!p?.enabled) return false;
     const t = String(p.type || '');
-    if (t === 'introduction') return false;
+    if (t === 'introduction') return true; // Include introduction phase
     if (t === 'coding') return false; // skip coding per request
     return true; // technical, behavioral, others
   }
